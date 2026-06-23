@@ -1,5 +1,8 @@
+import logging
 from playwright.sync_api import Page
 from scrapers.base import BaseScraper
+
+logger = logging.getLogger("streamrecos")
 
 
 # API endpoint for Hulu home page data
@@ -48,11 +51,11 @@ class HuluScraper(BaseScraper):
         )
 
         if not data or "components" not in data:
-            print(f"[{self.name}] API fetch failed, falling back to DOM scraping", flush=True)
+            logger.warning("[%s] API fetch failed, falling back to DOM scraping", self.name)
             return self._scrape_dom(page)
 
         components = data["components"]
-        print(f"[{self.name}] API returned {len(components)} components", flush=True)
+        logger.info("[%s] API returned %d components", self.name, len(components))
 
         for comp in components:
             name = (comp.get("name") or "").lower()
@@ -73,10 +76,11 @@ class HuluScraper(BaseScraper):
         history = []
         seen = set()
 
-        cards = page.locator('a[href*="/series/"], a[href*="/movie/"], [class*="card"]')
+        # Target links with aria-label that point to actual content pages
+        cards = page.locator('a[aria-label][href*="/series/"], a[aria-label][href*="/movie/"]')
         for i in range(cards.count()):
-            title = cards.nth(i).get_attribute("aria-label") or cards.nth(i).text_content(timeout=2000)
-            if title and title.strip() not in seen:
+            title = cards.nth(i).get_attribute("aria-label")
+            if title and title.strip() and len(title.strip()) > 1 and title.strip() not in seen:
                 history.append({"title": title.strip(), "date": None})
                 seen.add(title.strip())
 

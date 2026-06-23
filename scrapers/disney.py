@@ -1,12 +1,15 @@
+import logging
 import re
 from playwright.sync_api import Page
 from scrapers.base import BaseScraper
+
+logger = logging.getLogger("streamrecos")
 
 
 # Sets that indicate watch history
 HISTORY_SET_NAMES = {"continue watching", "pick up where you left off"}
 # Sets that imply you watched something (e.g., "Because You Watched X")
-BECAUSE_YOU_WATCHED_PATTERN = re.compile(r"because you watched (.+)", re.IGNORECASE)
+BECAUSE_YOU_WATCHED_PATTERN = re.compile(r"because you watched (.+?)$", re.IGNORECASE)
 
 
 class DisneyScraper(BaseScraper):
@@ -68,7 +71,7 @@ class DisneyScraper(BaseScraper):
             for container in page_data.get("containers", []):
                 self._extract_from_set(container.get("set", {}), history, seen)
 
-        print(f"[{self.name}] Extracted {len(history)} titles from API", flush=True)
+        logger.info("[%s] Extracted %d titles from API", self.name, len(history))
 
         # Also grab watchlist via DOM (simple fallback)
         page.goto(self.history_url, wait_until="domcontentloaded")

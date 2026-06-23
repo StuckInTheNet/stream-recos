@@ -1,10 +1,12 @@
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright, Page, Browser
 
+logger = logging.getLogger("streamrecos")
 
 HISTORY_DIR = Path(__file__).parent.parent / "history"
 SESSIONS_DIR = Path(__file__).parent.parent / "sessions"
@@ -51,7 +53,7 @@ class BaseScraper(ABC):
 
         # Reject false positives: login error pages
         if "couldn't log you in" in page_lower or "check your email and password" in page_lower:
-            print(f"[{self.name}] Login failed — wrong password")
+            logger.error("[%s] Login failed -- wrong password", self.name)
             return False
 
         otp_indicators = ["check your email inbox", "one-time passcode", "enter the code", "enter it below", "6-digit code"]
@@ -60,11 +62,11 @@ class BaseScraper(ABC):
         if not is_otp_page:
             return False
 
-        print(f"[{self.name}] OTP verification page detected")
+        logger.info("[%s] OTP verification page detected", self.name)
         code = wait_for_code(self.name)
 
         if not code:
-            print(f"[{self.name}] No code provided, cannot continue")
+            logger.warning("[%s] No code provided, cannot continue", self.name)
             return False
 
         # Type the code digit by digit using keyboard (works with split OTP inputs)
@@ -121,14 +123,14 @@ class BaseScraper(ABC):
             return False
         age_days = (datetime.now() - datetime.fromtimestamp(session_path.stat().st_mtime)).days
         if age_days > MAX_SESSION_AGE_DAYS:
-            print(f"[{self.name}] Session is {age_days} days old (max {MAX_SESSION_AGE_DAYS}), re-logging in", flush=True)
+            logger.info("[%s] Session is %dd old (max %d), re-logging in", self.name, age_days, MAX_SESSION_AGE_DAYS)
             session_path.unlink()
             return False
         return True
 
     def run(self, headless: bool = True) -> list[dict]:
         """Launch browser, login, scrape, save, and return history."""
-        print(f"[{self.name}] Launching browser...", flush=True)
+        logger.info("[%s] Launching browser...", self.name)
         session_path = SESSIONS_DIR / f"{self.name}.json"
         has_session = self._is_session_valid(session_path)
 
@@ -140,41 +142,58 @@ class BaseScraper(ABC):
                     storage_state=str(session_path),
                     user_agent=USER_AGENT,
                 )
-                print(f"[{self.name}] Loaded saved session", flush=True)
+                logger.info("[%s] Loaded saved session", self.name)
             else:
                 context = browser.new_context(user_agent=USER_AGENT)
 
             page = context.new_page()
 
             if has_session:
-                print(f"[{self.name}] Using saved session (skipping login)", flush=True)
+                logger.info("[%s] Using saved session (skipping login)", self.name)
             else:
-                print(f"[{self.name}] Logging in...", flush=True)
+                logger.info("[%s] Logging in...", self.name)
                 self.login(page)
 
                 # Save full state for next time
                 SESSIONS_DIR.mkdir(exist_ok=True)
                 context.storage_state(path=str(session_path))
-                print(f"[{self.name}] Saved session for reuse", flush=True)
+                logger.info("[%s] Saved session for reuse", self.name)
 
-            print(f"[{self.name}] Scraping viewing history...")
+            logger.info("[%s] Scraping viewing history...", self.name)
             # Save debug screenshot
             debug_path = HISTORY_DIR / f"{self.name}_debug.png"
             HISTORY_DIR.mkdir(exist_ok=True)
             page.screenshot(path=str(debug_path))
-            print(f"[{self.name}] Debug screenshot: {debug_path}")
+            logger.debug("[%s] Debug screenshot: %s", self.name, debug_path)
 
             history = self.scrape_history(page)
 
             browser.close()
 
-        print(f"[{self.name}] Found {len(history)} titles")
+        logger.info("[%s] Found %d titles", self.name, len(history))
         self._save(history)
         return history
 
     def _save(self, history: list[dict]) -> None:
         HISTORY_DIR.mkdir(exist_ok=True)
         path = HISTORY_DIR / f"{self.name}.json"
+
+        # Merge with existing history to avoid losing titles from previous scrapes
+        existing_titles = set()
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text())
+                existing_history = existing.get("history", [])
+                existing_titles = {item["title"] for item in existing_history}
+                # Keep existing entries that aren't in the new scrape
+                new_titles = {item["title"] for item in history}
+                for item in existing_history:
+                    if item["title"] not in new_titles:
+                        history.append(item)
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        merged_count = len(history) - len(existing_titles - {item["title"] for item in history})
         data = {
             "service": self.name,
             "scraped_at": datetime.now().isoformat(),
@@ -182,4 +201,4 @@ class BaseScraper(ABC):
             "history": history,
         }
         path.write_text(json.dumps(data, indent=2))
-        print(f"[{self.name}] Saved to {path}")
+        logger.info("[%s] Saved %d titles to %s", self.name, len(history), path)

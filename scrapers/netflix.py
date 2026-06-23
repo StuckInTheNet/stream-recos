@@ -1,6 +1,9 @@
+import logging
 import time
 from playwright.sync_api import Page
 from scrapers.base import BaseScraper
+
+logger = logging.getLogger("streamrecos")
 
 
 class NetflixScraper(BaseScraper):
@@ -39,14 +42,14 @@ class NetflixScraper(BaseScraper):
             show_more = page.get_by_role("button", name="Show More")
             if show_more.is_visible(timeout=2000):
                 try:
-                    print(f"[{self.name}] Loading history page {i + 1}/50...", end="\r", flush=True)
+                    logger.info("[%s] Loading history page %d/50...", self.name, i + 1)
                     show_more.click(timeout=5000)
                     page.wait_for_timeout(1500)
                 except Exception:
                     break
             else:
                 break
-        print(f"[{self.name}] Loaded {i + 1} pages of history        ", flush=True)
+        logger.info("[%s] Loaded %d pages of history", self.name, i + 1)
 
         rows = page.locator(".retableRow")
         count = rows.count()

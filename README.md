@@ -109,6 +109,10 @@ python main.py recos
 
 # Get a custom number
 python main.py recos -n 20
+
+# Export as JSON or CSV (pipe to file or other tools)
+python main.py recos -f json > recos.json
+python main.py recos -f csv > recos.csv
 ```
 
 ### Do everything at once
@@ -125,6 +129,13 @@ python main.py status
 ```
 
 Shows Ollama connectivity, configured credentials, scraped history counts with timestamps, and session ages.
+
+### Debug mode
+
+```bash
+# Enable verbose logging for any command
+python main.py -v scrape netflix
+```
 
 ### Clear data
 

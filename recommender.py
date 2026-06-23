@@ -1,9 +1,12 @@
 import json
+import logging
 import os
 import sys
 import urllib.request
 import urllib.error
 from pathlib import Path
+
+logger = logging.getLogger("streamrecos")
 
 HISTORY_DIR = Path(__file__).parent / "history"
 
@@ -106,16 +109,19 @@ def lookup_platform(title: str) -> list[str]:
         return []
 
 
-def get_recommendations(history: dict[str, list[str]], count: int = 10) -> str:
-    """Use Ollama to generate recommendations based on viewing history."""
+def get_recommendations(history: dict[str, list[str]], count: int = 10, raw: bool = False) -> str | list[dict]:
+    """Use Ollama to generate recommendations based on viewing history.
+
+    If raw=True, returns the list of recommendation dicts instead of formatted text.
+    """
     if not history:
         return "No viewing history found. Run scraping first."
 
     # Pre-check: is Ollama running?
     if not check_ollama():
-        print(f"{RED}Error: Cannot reach Ollama at {OLLAMA_URL}{RESET}")
-        print(f"{DIM}Make sure Ollama is running: ollama serve{RESET}")
-        print(f"{DIM}Then pull the model: ollama pull {OLLAMA_MODEL}{RESET}")
+        logger.error("%sError: Cannot reach Ollama at %s%s", RED, OLLAMA_URL, RESET)
+        logger.error("%sMake sure Ollama is running: ollama serve%s", DIM, RESET)
+        logger.error("%sThen pull the model: ollama pull %s%s", DIM, OLLAMA_MODEL, RESET)
         sys.exit(1)
 
     total_titles = sum(len(v) for v in history.values())
@@ -164,33 +170,33 @@ Viewing history:
         headers={"Content-Type": "application/json"},
     )
 
-    print(f"{DIM}  Generating recommendations with {OLLAMA_MODEL}...{RESET}", flush=True)
+    logger.info("%s  Generating recommendations with %s...%s", DIM, OLLAMA_MODEL, RESET)
 
     try:
         with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as resp:
             result = json.loads(resp.read())
     except urllib.error.URLError as e:
-        print(f"{RED}Error: Failed to connect to Ollama at {OLLAMA_URL}{RESET}")
-        print(f"{DIM}{e}{RESET}")
+        logger.error("%sError: Failed to connect to Ollama at %s%s", RED, OLLAMA_URL, RESET)
+        logger.error("%s%s%s", DIM, e, RESET)
         sys.exit(1)
     except TimeoutError:
-        print(f"{RED}Error: Ollama timed out after {OLLAMA_TIMEOUT}s{RESET}")
-        print(f"{DIM}Try increasing OLLAMA_TIMEOUT or using a smaller model{RESET}")
+        logger.error("%sError: Ollama timed out after %ds%s", RED, OLLAMA_TIMEOUT, RESET)
+        logger.error("%sTry increasing OLLAMA_TIMEOUT or using a smaller model%s", DIM, RESET)
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"{RED}Error: Ollama returned invalid JSON{RESET}")
+        logger.error("%sError: Ollama returned invalid JSON%s", RED, RESET)
         sys.exit(1)
 
-    raw = result["response"]
+    raw_response = result["response"]
 
     try:
-        start = raw.index("{")
-        end = raw.rindex("}") + 1
-        data = json.loads(raw[start:end])
+        json_start = raw_response.index("{")
+        json_end = raw_response.rindex("}") + 1
+        data = json.loads(raw_response[json_start:json_end])
         recs = data["recommendations"]
     except (ValueError, KeyError, json.JSONDecodeError):
-        print(f"{RED}Error: Could not parse recommendations from model response{RESET}")
-        print(f"{DIM}Raw response:{RESET}\n{raw[:500]}")
+        logger.error("%sError: Could not parse recommendations from model response%s", RED, RESET)
+        logger.error("%sRaw response:%s\n%s", DIM, RESET, raw_response[:500])
         sys.exit(1)
 
     # Filter out titles that are already in the viewing history
@@ -204,15 +210,17 @@ Viewing history:
     # Look up real platforms via JustWatch
     justwatch_failed = 0
     for i, rec in enumerate(recs, 1):
-        print(f"{DIM}  Verifying platforms ({i}/{len(recs)})...{RESET}", end="\r", flush=True)
+        logger.info("%s  Verifying platforms (%d/%d)...%s\r", DIM, i, len(recs), RESET)
         platforms = lookup_platform(rec["title"])
         rec["platforms"] = platforms
         if not platforms:
             justwatch_failed += 1
-    print(" " * 60, end="\r")  # Clear progress line
 
     if justwatch_failed == len(recs) and len(recs) > 0:
-        print(f"{YELLOW}  Warning: JustWatch API returned no results. Platform info may be unavailable.{RESET}")
+        logger.warning("%s  Warning: JustWatch API returned no results. Platform info may be unavailable.%s", YELLOW, RESET)
+
+    if raw:
+        return recs
 
     return format_recommendations(recs, total_titles)
 

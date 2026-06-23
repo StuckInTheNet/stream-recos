@@ -1,12 +1,14 @@
 """Fetch verification codes via file-based delivery.
 
 The scraper writes a request, then polls for a code file.
-An external process (Claude Code with Gmail MCP, or the user manually)
-writes the code to the file.
+An external process (or the user manually) writes the code to the file.
 """
 
+import logging
 import time
 from pathlib import Path
+
+logger = logging.getLogger("streamrecos")
 
 CODE_DIR = Path(__file__).parent / "history"
 
@@ -28,8 +30,8 @@ def wait_for_code(service: str, timeout: int = 120) -> str | None:
 
     # Signal that we need a code
     request_file.write_text(f"{service} needs verification code")
-    print(f"[{service}] Waiting for verification code...", flush=True)
-    print(f"[{service}] Write code to: {code_file}", flush=True)
+    logger.info("[%s] Waiting for verification code...", service)
+    logger.info("[%s] Write code to: %s", service, code_file)
 
     start = time.time()
     while time.time() - start < timeout:
@@ -38,12 +40,12 @@ def wait_for_code(service: str, timeout: int = 120) -> str | None:
             if code:
                 code_file.unlink(missing_ok=True)
                 request_file.unlink(missing_ok=True)
-                print(f"[{service}] Code received: {code}", flush=True)
+                logger.info("[%s] Code received: %s", service, code)
                 return code
         except FileNotFoundError:
             pass
         time.sleep(2)
 
     request_file.unlink(missing_ok=True)
-    print(f"[{service}] Timed out waiting for code", flush=True)
+    logger.warning("[%s] Timed out waiting for code", service)
     return None
