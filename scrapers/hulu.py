@@ -1,5 +1,5 @@
 from playwright.sync_api import Page
-from scrapers.base import BaseScraper, HISTORY_DIR
+from scrapers.base import BaseScraper
 
 
 # API endpoint for Hulu home page data

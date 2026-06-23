@@ -1,4 +1,4 @@
-#!/Users/mattfish/stream-recos/.venv/bin/python3
+#!/usr/bin/env python3
 """Open a browser for manual login. Saves full session state for the scraper."""
 
 import os

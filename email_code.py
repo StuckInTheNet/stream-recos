@@ -33,13 +33,15 @@ def wait_for_code(service: str, timeout: int = 120) -> str | None:
 
     start = time.time()
     while time.time() - start < timeout:
-        if code_file.exists():
+        try:
             code = code_file.read_text().strip()
             if code:
-                code_file.unlink()
+                code_file.unlink(missing_ok=True)
                 request_file.unlink(missing_ok=True)
                 print(f"[{service}] Code received: {code}", flush=True)
                 return code
+        except FileNotFoundError:
+            pass
         time.sleep(2)
 
     request_file.unlink(missing_ok=True)

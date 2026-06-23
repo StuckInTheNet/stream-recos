@@ -9,6 +9,13 @@ from playwright.sync_api import sync_playwright, Page, Browser
 HISTORY_DIR = Path(__file__).parent.parent / "history"
 SESSIONS_DIR = Path(__file__).parent.parent / "sessions"
 
+MAX_SESSION_AGE_DAYS = 30
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 class BaseScraper(ABC):
     name: str = ""
@@ -108,30 +115,34 @@ class BaseScraper(ABC):
                 break
         return titles
 
+    def _is_session_valid(self, session_path: Path) -> bool:
+        """Check if a saved session file exists and is not too old."""
+        if not session_path.exists():
+            return False
+        age_days = (datetime.now() - datetime.fromtimestamp(session_path.stat().st_mtime)).days
+        if age_days > MAX_SESSION_AGE_DAYS:
+            print(f"[{self.name}] Session is {age_days} days old (max {MAX_SESSION_AGE_DAYS}), re-logging in", flush=True)
+            session_path.unlink()
+            return False
+        return True
+
     def run(self, headless: bool = True) -> list[dict]:
         """Launch browser, login, scrape, save, and return history."""
         print(f"[{self.name}] Launching browser...", flush=True)
         session_path = SESSIONS_DIR / f"{self.name}.json"
-        has_session = session_path.exists()
+        has_session = self._is_session_valid(session_path)
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
 
             if has_session:
-                # Restore full state: cookies + localStorage
                 context = browser.new_context(
                     storage_state=str(session_path),
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                               "Chrome/120.0.0.0 Safari/537.36"
+                    user_agent=USER_AGENT,
                 )
                 print(f"[{self.name}] Loaded saved session", flush=True)
             else:
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                               "Chrome/120.0.0.0 Safari/537.36"
-                )
+                context = browser.new_context(user_agent=USER_AGENT)
 
             page = context.new_page()
 

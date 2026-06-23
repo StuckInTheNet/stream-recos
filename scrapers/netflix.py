@@ -34,17 +34,19 @@ class NetflixScraper(BaseScraper):
     def scrape_history(self, page: Page) -> list[dict]:
         page.goto(self.history_url, wait_until="networkidle")
 
-        # Netflix lazy-loads history — click "Show More" until exhausted (max 50 pages)
-        for _ in range(50):
+        # Netflix lazy-loads history -- click "Show More" until exhausted (max 50 pages)
+        for i in range(50):
             show_more = page.get_by_role("button", name="Show More")
             if show_more.is_visible(timeout=2000):
                 try:
+                    print(f"[{self.name}] Loading history page {i + 1}/50...", end="\r", flush=True)
                     show_more.click(timeout=5000)
                     page.wait_for_timeout(1500)
                 except Exception:
                     break
             else:
                 break
+        print(f"[{self.name}] Loaded {i + 1} pages of history        ", flush=True)
 
         rows = page.locator(".retableRow")
         count = rows.count()
