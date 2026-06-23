@@ -15,9 +15,21 @@
 
 ---
 
-## What It Does
+## The Problem
 
-**streamrecos** logs into your streaming services, pulls your viewing history, and feeds it to a local LLM to generate personalized recommendations. No data leaves your machine (besides the login itself). Platforms are verified through JustWatch so you know exactly where to watch each recommendation.
+"What should we watch tonight?"
+
+"I don't know. What do you want to watch?"
+
+You know the drill. You open Netflix, scroll for 10 minutes, switch to Hulu, scroll some more, check Rotten Tomatoes, open Disney+, give up, and put on something you've already seen. Between four streaming apps and zero useful recommendations, picking something new is a 30-minute ordeal that usually ends in "let's just rewatch The Office."
+
+Each app only knows what you've watched *on that app*. None of them see the full picture. And their "recommended for you" rows are half stuff you've already seen and half stuff they're paid to promote.
+
+## What This Does
+
+**streamrecos** pulls your complete viewing history from every streaming service, feeds all of it to a local AI, and gives you a single ranked list of what to watch next. It knows what you've watched everywhere, so it won't waste your time suggesting things you've already seen. Every recommendation includes which platform it's actually on, so you don't have to go searching.
+
+No accounts to create. No data leaves your machine. Just run it and get answers.
 
 ### Supported Services
 
