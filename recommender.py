@@ -126,17 +126,15 @@ def get_recommendations(history: dict[str, list[str]], count: int = 10, raw: boo
 
     total_titles = sum(len(v) for v in history.values())
 
-    # Send a sample of titles per service to fit within the model's context window.
-    # llama3:8b has 8K context -- ~300 titles total leaves room for output.
-    max_per_service = min(75, 300 // max(len(history), 1))
     history_text = ""
     for service, titles in history.items():
-        sample = titles[:max_per_service]
-        history_text += f"\n{service.upper()} ({len(titles)} titles, showing {len(sample)}):\n"
-        for title in sample:
+        history_text += f"\n{service.upper()} ({len(titles)} titles):\n"
+        for title in titles:
             history_text += f"  - {title}\n"
 
-    prompt = f"""Based on this viewing history across streaming services, recommend {count} shows or movies to watch next.
+    # Ask for extra recommendations since some will be filtered as already-watched
+    request_count = count + 10
+    prompt = f"""Based on this viewing history across streaming services, recommend {request_count} shows or movies to watch next.
 
 You MUST respond with valid JSON only. No other text before or after the JSON.
 
@@ -168,7 +166,7 @@ Viewing history:
         "stream": False,
         "options": {
             "num_predict": 4096,
-            "num_ctx": 8192,
+            "num_ctx": 32768,
         },
     }).encode()
 
@@ -214,6 +212,7 @@ Viewing history:
             # Normalize: lowercase, strip season/episode info
             all_watched.add(t.lower().split(":")[0].strip())
     recs = [r for r in recs if r["title"].lower().split(":")[0].strip() not in all_watched]
+    recs = recs[:count]  # Trim to requested count after filtering
 
     # Look up real platforms via JustWatch
     justwatch_failed = 0
