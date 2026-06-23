@@ -4,7 +4,7 @@ from pathlib import Path
 
 HISTORY_DIR = Path(__file__).parent / "history"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "llama3.2:3b"
+MODEL = "llama3:8b"
 
 
 def load_all_history() -> dict[str, list[str]]:
@@ -34,11 +34,17 @@ def get_recommendations(history: dict[str, list[str]], count: int = 10) -> str:
     prompt = f"""Based on this viewing history across streaming services, recommend {count} shows or movies to watch next.
 
 Rules:
-- Only output titles, one per line, numbered
 - CRITICAL: Do NOT recommend anything already listed in the viewing history below. Every recommendation must be something NEW.
+- For each recommendation, use this exact format:
+  NUMBER. TITLE (PLATFORM)
+  Why: 1-2 sentence explanation connecting it to specific shows from their history.
 - Mix genres based on what the history shows — look for patterns in what this person likes
-- Include which streaming service each recommendation is currently available on
+- PLATFORM must be a specific streaming service (Netflix, Hulu, Disney+, Max, Amazon Prime, Apple TV+, etc.)
 - Focus on highly-rated shows and movies that match this person's taste
+
+Example format:
+1. Severance (Apple TV+)
+   Why: You loved The Bear's intense workplace drama and Schitt's Creek's quirky ensemble — this sci-fi thriller blends both.
 
 Viewing history:
 {history_text}"""
