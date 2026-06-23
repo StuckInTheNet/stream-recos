@@ -162,6 +162,9 @@ Viewing history:
         "model": OLLAMA_MODEL,
         "prompt": prompt,
         "stream": False,
+        "options": {
+            "num_predict": 2048,
+        },
     }).encode()
 
     req = urllib.request.Request(
