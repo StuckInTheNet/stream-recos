@@ -134,31 +134,21 @@ def get_recommendations(history: dict[str, list[str]], count: int = 10, raw: boo
 
     # Ask for extra recommendations since some will be filtered as already-watched
     request_count = count + 10
-    prompt = f"""Based on this viewing history across streaming services, recommend {request_count} shows or movies to watch next.
+    prompt = f"""Here is a user's viewing history across streaming services:
 
-You MUST respond with valid JSON only. No other text before or after the JSON.
+{history_text}
+
+Based on the viewing history above, recommend {request_count} shows or movies to watch next.
 
 Rules:
-- CRITICAL: Do NOT recommend anything already listed in the viewing history below.
-- Every recommendation must be something NEW that is not in the history.
+- Do NOT recommend anything already in the viewing history above.
 - Mix genres based on patterns in what this person watches.
 - Focus on highly-rated shows and movies.
-- The match_score is 1-10 representing how well this matches their taste (10 = perfect match).
-- Do NOT include a "platform" field -- platforms will be looked up separately.
+- The match_score is 1-10 (10 = perfect match).
+- Keep each reason to 1 sentence.
 
-Respond with this exact JSON format:
-{{
-  "recommendations": [
-    {{
-      "title": "Show Name",
-      "match_score": 9,
-      "reason": "1-2 sentence explanation referencing specific shows from their history"
-    }}
-  ]
-}}
-
-Viewing history:
-{history_text}"""
+You MUST respond with ONLY this JSON, no other text:
+{{"recommendations": [{{"title": "Show Name", "match_score": 9, "reason": "Brief explanation"}}]}}"""
 
     payload = json.dumps({
         "model": OLLAMA_MODEL,
