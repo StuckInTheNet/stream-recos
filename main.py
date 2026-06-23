@@ -72,7 +72,7 @@ def scrape(services: list[str], headless: bool) -> bool:
 def recommend(count: int, fmt: str = "terminal") -> None:
     history = load_all_history()
     if not history:
-        print("No history found. Run `python main.py scrape` first.")
+        logger.error("No history found. Run `python main.py scrape` first.")
         sys.exit(1)
 
     total = sum(len(v) for v in history.values())
@@ -247,7 +247,7 @@ def main() -> None:
         success = scrape(args.services, headless=not args.visible)
         if not success:
             sys.exit(1)
-        recommend(args.count, fmt=getattr(args, "format", "terminal"))
+        recommend(args.count, fmt=args.format)
     elif args.command == "status":
         status()
     elif args.command == "clear":

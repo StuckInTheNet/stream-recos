@@ -176,12 +176,12 @@ Viewing history:
         with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as resp:
             result = json.loads(resp.read())
     except urllib.error.URLError as e:
-        logger.error("%sError: Failed to connect to Ollama at %s%s", RED, OLLAMA_URL, RESET)
-        logger.error("%s%s%s", DIM, e, RESET)
-        sys.exit(1)
-    except TimeoutError:
-        logger.error("%sError: Ollama timed out after %ds%s", RED, OLLAMA_TIMEOUT, RESET)
-        logger.error("%sTry increasing OLLAMA_TIMEOUT or using a smaller model%s", DIM, RESET)
+        if isinstance(e.reason, TimeoutError):
+            logger.error("%sError: Ollama timed out after %ds%s", RED, OLLAMA_TIMEOUT, RESET)
+            logger.error("%sTry increasing OLLAMA_TIMEOUT or using a smaller model%s", DIM, RESET)
+        else:
+            logger.error("%sError: Failed to connect to Ollama at %s%s", RED, OLLAMA_URL, RESET)
+            logger.error("%s%s%s", DIM, e, RESET)
         sys.exit(1)
     except json.JSONDecodeError:
         logger.error("%sError: Ollama returned invalid JSON%s", RED, RESET)

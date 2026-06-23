@@ -4,7 +4,7 @@ import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from playwright.sync_api import sync_playwright, Page, Browser
+from playwright.sync_api import sync_playwright, Page
 
 logger = logging.getLogger("streamrecos")
 
@@ -193,7 +193,6 @@ class BaseScraper(ABC):
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        merged_count = len(history) - len(existing_titles - {item["title"] for item in history})
         data = {
             "service": self.name,
             "scraped_at": datetime.now().isoformat(),
