@@ -126,10 +126,14 @@ def get_recommendations(history: dict[str, list[str]], count: int = 10, raw: boo
 
     total_titles = sum(len(v) for v in history.values())
 
+    # Send a sample of titles per service to fit within the model's context window.
+    # llama3:8b has 8K context -- ~300 titles total leaves room for output.
+    max_per_service = min(75, 300 // max(len(history), 1))
     history_text = ""
     for service, titles in history.items():
-        history_text += f"\n{service.upper()} ({len(titles)} titles):\n"
-        for title in titles[:100]:
+        sample = titles[:max_per_service]
+        history_text += f"\n{service.upper()} ({len(titles)} titles, showing {len(sample)}):\n"
+        for title in sample:
             history_text += f"  - {title}\n"
 
     prompt = f"""Based on this viewing history across streaming services, recommend {count} shows or movies to watch next.
@@ -163,7 +167,8 @@ Viewing history:
         "prompt": prompt,
         "stream": False,
         "options": {
-            "num_predict": 2048,
+            "num_predict": 4096,
+            "num_ctx": 8192,
         },
     }).encode()
 
