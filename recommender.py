@@ -6,6 +6,27 @@ HISTORY_DIR = Path(__file__).parent / "history"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3:8b"
 
+JUSTWATCH_URL = "https://apis.justwatch.com/graphql"
+JUSTWATCH_QUERY = """
+query GetSearchTitles($searchTitlesFilter: TitleFilter!, $country: Country!, $language: Language!) {
+  popularTitles(country: $country, filter: $searchTitlesFilter, first: 1) {
+    edges {
+      node {
+        content(country: $country, language: $language) {
+          title
+        }
+        offers(country: $country, platform: WEB) {
+          monetizationType
+          package {
+            clearName
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 # ANSI colors
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -13,8 +34,8 @@ RESET = "\033[0m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
-MAGENTA = "\033[35m"
 WHITE = "\033[97m"
+RED = "\033[31m"
 
 
 def load_all_history() -> dict[str, list[str]]:
@@ -28,6 +49,43 @@ def load_all_history() -> dict[str, list[str]]:
         if titles:
             history[data["service"]] = titles
     return history
+
+
+def lookup_platform(title: str) -> list[str]:
+    """Look up which streaming platforms a title is available on via JustWatch."""
+    try:
+        payload = json.dumps({
+            "query": JUSTWATCH_QUERY,
+            "variables": {
+                "searchTitlesFilter": {"searchQuery": title},
+                "country": "US",
+                "language": "en",
+            },
+        }).encode()
+        req = urllib.request.Request(
+            JUSTWATCH_URL, data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=8)
+        data = json.loads(resp.read())
+        edges = data["data"]["popularTitles"]["edges"]
+        if not edges:
+            return []
+        offers = edges[0]["node"].get("offers", [])
+        # Only include streaming (not rent/buy)
+        platforms = []
+        seen = set()
+        for o in offers:
+            if o["monetizationType"] in ("FLATRATE", "FREE", "ADS"):
+                name = o["package"]["clearName"]
+                # Normalize common names
+                name = name.replace(" Standard with Ads", "").replace(" Basic with Ads", "")
+                if name not in seen:
+                    platforms.append(name)
+                    seen.add(name)
+        return platforms
+    except Exception:
+        return []
 
 
 def get_recommendations(history: dict[str, list[str]], count: int = 10) -> str:
@@ -51,13 +109,13 @@ Rules:
 - Mix genres based on patterns in what this person watches.
 - Focus on highly-rated shows and movies.
 - The match_score is 1-10 representing how well this matches their taste (10 = perfect match).
+- Do NOT include a "platform" field — platforms will be looked up separately.
 
 Respond with this exact JSON format:
 {{
   "recommendations": [
     {{
       "title": "Show Name",
-      "platform": "Netflix",
       "match_score": 9,
       "reason": "1-2 sentence explanation referencing specific shows from their history"
     }}
@@ -78,21 +136,36 @@ Viewing history:
         data=payload,
         headers={"Content-Type": "application/json"},
     )
+
+    print(f"{DIM}  Generating recommendations...{RESET}", flush=True)
     with urllib.request.urlopen(req, timeout=180) as resp:
         result = json.loads(resp.read())
 
     raw = result["response"]
 
-    # Try to parse as JSON and format nicely
     try:
-        # Extract JSON from response (model might add text around it)
         start = raw.index("{")
         end = raw.rindex("}") + 1
         data = json.loads(raw[start:end])
-        return format_recommendations(data["recommendations"])
+        recs = data["recommendations"]
     except (ValueError, KeyError, json.JSONDecodeError):
-        # Fallback: return raw text if JSON parsing fails
         return raw
+
+    # Filter out titles that are already in the viewing history
+    all_watched = set()
+    for titles in history.values():
+        for t in titles:
+            # Normalize: lowercase, strip season/episode info
+            all_watched.add(t.lower().split(":")[0].strip())
+    recs = [r for r in recs if r["title"].lower().split(":")[0].strip() not in all_watched]
+
+    # Look up real platforms via JustWatch
+    print(f"{DIM}  Verifying platforms via JustWatch...{RESET}", flush=True)
+    for rec in recs:
+        platforms = lookup_platform(rec["title"])
+        rec["platforms"] = platforms
+
+    return format_recommendations(recs)
 
 
 def score_bar(score: int) -> str:
@@ -120,12 +193,18 @@ def format_recommendations(recs: list[dict]) -> str:
 
     for i, rec in enumerate(recs, 1):
         title = rec.get("title", "Unknown")
-        platform = rec.get("platform", "Unknown")
         score = min(max(rec.get("match_score", 5), 1), 10)
         reason = rec.get("reason", "")
+        platforms = rec.get("platforms", [])
+
+        if platforms:
+            platform_str = f"{CYAN}{' · '.join(platforms[:3])}{RESET}"
+        else:
+            platform_str = f"{DIM}Platform unavailable{RESET}"
 
         lines.append(f"  {BOLD}{WHITE}{i:2d}. {title}{RESET}")
-        lines.append(f"      {CYAN}{platform}{RESET}  {score_bar(score)} {BOLD}{score}/10{RESET}")
+        lines.append(f"      {platform_str}")
+        lines.append(f"      {score_bar(score)} {BOLD}{score}/10{RESET} match")
         lines.append(f"      {DIM}{reason}{RESET}")
         lines.append("")
 
