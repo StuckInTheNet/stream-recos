@@ -222,8 +222,9 @@ You MUST respond with ONLY this JSON, no other text:
     return format_recommendations(recs, total_titles)
 
 
-def score_bar(score: int) -> str:
+def score_bar(score: int | float) -> str:
     """Render a visual match score bar."""
+    score = int(round(score))
     filled = "\u2588" * score
     empty = "\u2591" * (10 - score)
     if score >= 8:
@@ -245,7 +246,7 @@ def format_recommendations(recs: list[dict], total_titles: int) -> str:
 
     for i, rec in enumerate(recs, 1):
         title = rec.get("title", "Unknown")
-        score = min(max(rec.get("match_score", 5), 1), 10)
+        score = int(round(min(max(rec.get("match_score", 5), 1), 10)))
         reason = rec.get("reason", "")
         platforms = rec.get("platforms", [])
 
