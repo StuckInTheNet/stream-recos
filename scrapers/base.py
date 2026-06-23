@@ -1,0 +1,174 @@
+import json
+import os
+from abc import ABC, abstractmethod
+from datetime import datetime
+from pathlib import Path
+from playwright.sync_api import sync_playwright, Page, Browser
+
+
+HISTORY_DIR = Path(__file__).parent.parent / "history"
+SESSIONS_DIR = Path(__file__).parent.parent / "sessions"
+
+
+class BaseScraper(ABC):
+    name: str = ""
+    login_url: str = ""
+    history_url: str = ""
+
+    def __init__(self, email: str, password: str):
+        self.email = email
+        self.password = password
+
+    @abstractmethod
+    def login(self, page: Page) -> None:
+        """Log into the streaming service."""
+
+    @abstractmethod
+    def scrape_history(self, page: Page) -> list[dict]:
+        """Scrape viewing history. Returns list of {"title": str, "date": str | None}."""
+
+    def handle_otp(self, page: Page, submit_selector: str = 'button:has-text("Continue"), button[type="submit"]') -> bool:
+        """Detect an OTP/verification code page and handle it.
+
+        Detects the "Check your email" page used by MyDisney (Hulu/Disney+)
+        and similar services. Uses file-based code delivery for automation
+        or falls back to terminal input.
+
+        Returns True if OTP was handled, False if no OTP page was detected.
+        """
+        from email_code import wait_for_code
+
+        # Check for OTP verification page (NOT the login error which says "check your email and password")
+        page_text = page.text_content("body", timeout=3000) or ""
+        page_lower = page_text.lower()
+
+        # Reject false positives: login error pages
+        if "couldn't log you in" in page_lower or "check your email and password" in page_lower:
+            print(f"[{self.name}] Login failed — wrong password")
+            return False
+
+        otp_indicators = ["check your email inbox", "one-time passcode", "enter the code", "enter it below", "6-digit code"]
+        is_otp_page = any(indicator in page_lower for indicator in otp_indicators)
+
+        if not is_otp_page:
+            return False
+
+        print(f"[{self.name}] OTP verification page detected")
+        code = wait_for_code(self.name)
+
+        if not code:
+            print(f"[{self.name}] No code provided, cannot continue")
+            return False
+
+        # Type the code digit by digit using keyboard (works with split OTP inputs)
+        # Click on the page first to ensure focus
+        page.keyboard.press("Tab")
+        page.wait_for_timeout(500)
+        for digit in code:
+            page.keyboard.type(digit, delay=100)
+        page.wait_for_timeout(1000)
+
+        # Click Continue/Submit
+        submit = page.locator(submit_selector)
+        if submit.first.is_visible(timeout=2000):
+            submit.first.click()
+        page.wait_for_timeout(5000)
+
+        return True
+
+    def handle_2fa(self, page: Page, input_selector: str, submit_selector: str = 'button[type="submit"]') -> None:
+        """Legacy 2FA handler for single-input code fields (e.g., Netflix)."""
+        code_input = page.locator(input_selector)
+        if code_input.is_visible(timeout=3000):
+            from email_code import wait_for_code
+            code = wait_for_code(self.name)
+            if code:
+                code_input.fill(code)
+                page.click(submit_selector)
+                page.wait_for_timeout(5000)
+
+    def find_shelf_titles(self, page: Page, shelf_selector: str, keyword: str, card_selector: str) -> list[str]:
+        """Scan shelves for one matching a keyword, return card titles from it."""
+        titles = []
+        shelves = page.locator(shelf_selector)
+        count = shelves.count()
+        for i in range(count):
+            shelf = shelves.nth(i)
+            heading = shelf.locator("h2, h3")
+            if heading.count() == 0:
+                continue
+            text = heading.first.text_content(timeout=2000) or ""
+            if keyword in text.lower():
+                cards = shelf.locator(card_selector)
+                for j in range(cards.count()):
+                    card = cards.nth(j)
+                    title = card.get_attribute("aria-label") or card.text_content(timeout=2000)
+                    if title and title.strip():
+                        titles.append(title.strip())
+                break
+        return titles
+
+    def run(self, headless: bool = True) -> list[dict]:
+        """Launch browser, login, scrape, save, and return history."""
+        print(f"[{self.name}] Launching browser...", flush=True)
+        session_path = SESSIONS_DIR / f"{self.name}.json"
+        has_session = session_path.exists()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+
+            if has_session:
+                # Restore full state: cookies + localStorage
+                context = browser.new_context(
+                    storage_state=str(session_path),
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/120.0.0.0 Safari/537.36"
+                )
+                print(f"[{self.name}] Loaded saved session", flush=True)
+            else:
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/120.0.0.0 Safari/537.36"
+                )
+
+            page = context.new_page()
+
+            if has_session:
+                print(f"[{self.name}] Using saved session (skipping login)", flush=True)
+            else:
+                print(f"[{self.name}] Logging in...", flush=True)
+                self.login(page)
+
+                # Save full state for next time
+                SESSIONS_DIR.mkdir(exist_ok=True)
+                context.storage_state(path=str(session_path))
+                print(f"[{self.name}] Saved session for reuse", flush=True)
+
+            print(f"[{self.name}] Scraping viewing history...")
+            # Save debug screenshot
+            debug_path = HISTORY_DIR / f"{self.name}_debug.png"
+            HISTORY_DIR.mkdir(exist_ok=True)
+            page.screenshot(path=str(debug_path))
+            print(f"[{self.name}] Debug screenshot: {debug_path}")
+
+            history = self.scrape_history(page)
+
+            browser.close()
+
+        print(f"[{self.name}] Found {len(history)} titles")
+        self._save(history)
+        return history
+
+    def _save(self, history: list[dict]) -> None:
+        HISTORY_DIR.mkdir(exist_ok=True)
+        path = HISTORY_DIR / f"{self.name}.json"
+        data = {
+            "service": self.name,
+            "scraped_at": datetime.now().isoformat(),
+            "count": len(history),
+            "history": history,
+        }
+        path.write_text(json.dumps(data, indent=2))
+        print(f"[{self.name}] Saved to {path}")
